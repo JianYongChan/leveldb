@@ -25,11 +25,14 @@ class Block {
   Iterator* NewIterator(const Comparator* comparator);
 
  private:
-  uint32_t NumRestarts() const;
+  uint32_t NumRestarts() const; // 返回重启点的个数
 
   const char* data_;
   size_t size_;
+  
+  // 记录重启点数组在block这个长字符串中的偏移量
   uint32_t restart_offset_;     // Offset in data_ of restart array
+  // data_是否为堆分配的内存，是的话就需要手动回收
   bool owned_;                  // Block owns data_[]
 
   // No copying allowed

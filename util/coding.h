@@ -89,13 +89,14 @@ extern const char* GetVarint32PtrFallback(const char* p,
 inline const char* GetVarint32Ptr(const char* p,
                                   const char* limit,
                                   uint32_t* value) {
-  if (p < limit) {
+  if (p < limit) { // 特殊处理p(首地址)存储varint32只有一个byte长的情况
     uint32_t result = *(reinterpret_cast<const unsigned char*>(p));
-    if ((result & 128) == 0) {
+    if ((result & 128) == 0) { // 如果result & 128 == 0则说明result的最高为为0，则说明它就是varint32的最后一个byte(或者唯一一个byte)了
       *value = result;
       return p + 1;
     }
   }
+  // 如果存储的varint32不止1个byte，就调用GetVarint32PtrFallback来进行处理
   return GetVarint32PtrFallback(p, limit, value);
 }
 

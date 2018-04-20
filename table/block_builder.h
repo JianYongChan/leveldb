@@ -43,9 +43,12 @@ class BlockBuilder {
   const Options*        options_;
   std::string           buffer_;      // Destination buffer
   std::vector<uint32_t> restarts_;    // Restart points
+  // counter_存储的是最新的重起点块存储了多少条entry了
+  // 默认每16条entry一个重启点，我将这16个entry称为一个重启点块
+  // 重启点块的大小由options_.block_restart_interval决定(默认16)
   int                   counter_;     // Number of entries emitted since restart
   bool                  finished_;    // Has Finish() been called?
-  std::string           last_key_;
+  std::string           last_key_;    // 上一条插入的entry的key
 
   // No copying allowed
   BlockBuilder(const BlockBuilder&);

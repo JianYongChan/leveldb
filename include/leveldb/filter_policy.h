@@ -22,6 +22,8 @@ namespace leveldb {
 
 class Slice;
 
+// FilterPolicy里面全部都是pure virtual functions，是一个抽象基类
+// FilterPolicy的具体用途是什么呢？
 class FilterPolicy {
  public:
   virtual ~FilterPolicy();

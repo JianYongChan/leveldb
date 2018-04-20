@@ -16,6 +16,7 @@
 namespace leveldb {
 
 inline uint32_t Block::NumRestarts() const {
+  // 重启点的个数存储在block的最后4个字节中(用定长编码存储)
   assert(size_ >= sizeof(uint32_t));
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
@@ -27,11 +28,18 @@ Block::Block(const BlockContents& contents)
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
+    /*
+     * start point(重启点)是std::vector<uint32_t> restart_;
+     * 假设block所有的内容都用来存restart point(不过除了最后4个byte是存储restart point的个数)
+     * 如果这都不够存，就说明肯定出错了
+     */
     size_t max_restarts_allowed = (size_-sizeof(uint32_t)) / sizeof(uint32_t);
     if (NumRestarts() > max_restarts_allowed) {
       // The size is too small for NumRestarts()
       size_ = 0;
     } else {
+      // 要注意restart_offset_是怎么算的
+      // NumRestarts()+1是因为block的最后4个字节用来存储restart point的个数了
       restart_offset_ = size_ - (1 + NumRestarts()) * sizeof(uint32_t);
     }
   }
@@ -39,6 +47,7 @@ Block::Block(const BlockContents& contents)
 
 Block::~Block() {
   if (owned_) {
+    // 如果是堆分配的内存，则需要手动释放
     delete[] data_;
   }
 }
@@ -54,25 +63,48 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
                                       uint32_t* shared,
                                       uint32_t* non_shared,
                                       uint32_t* value_length) {
-  if (limit - p < 3) return NULL;
+  if (limit - p < 3) return NULL; // 如果连3个byte都没有，说明一定出错
+  // 为什么需要reinterpret_cast<const unsigned char*>?
+  // 我觉得是因为char是带符号，而uint32_t是无符号，所以需要先将带符号转为无符号(想法尚未验证)
+
+  // 这里有一点巧妙
+  // 作者首先假设3个数字都是1个byte的情况(有可能是因为这种情况比较常见，所以特殊快速处理)
+  // 以1个byte的情况将其取出分别存放到*shared, *non_shared, *value_length
   *shared = reinterpret_cast<const unsigned char*>(p)[0];
   *non_shared = reinterpret_cast<const unsigned char*>(p)[1];
   *value_length = reinterpret_cast<const unsigned char*>(p)[2];
+  // 如果满足(*shared | *non_shared | *value_length < 128)则说明3个数的最高位都是0
+  // 这就说明这3个数的确都只占1个byte
+  // 这种情况就被快速处理了
   if ((*shared | *non_shared | *value_length) < 128) {
     // Fast path: all three values are encoded in one byte each
     p += 3;
   } else {
-    if ((p = GetVarint32Ptr(p, limit, shared)) == NULL) return NULL;
+    // 如果不是快速情况(即3个数每个只占1个byte了)，就在GetVarint32Ptr函数重新解析出这3个数
+    if ((p = GetVarint32PtR(p, limit, shared)) == NULL) return NULL;
     if ((p = GetVarint32Ptr(p, limit, non_shared)) == NULL) return NULL;
     if ((p = GetVarint32Ptr(p, limit, value_length)) == NULL) return NULL;
   }
 
+  // limit存储的是什么？
   if (static_cast<uint32_t>(limit - p) < (*non_shared + *value_length)) {
     return NULL;
   }
   return p;
 }
 
+/*
+ * Block的数据成员
+ * comparator_：    用户自定义比较器
+ * data_:           当前block的内容
+ * restarts_:       重启点数组的偏移
+ * num_restart_：   重启点数组中的重启点个数
+ * current_:        当前entry在data_中的偏移
+ * restart_index_:  当前entry在重启点数组对应的重启点index
+ * key_:            键
+ * value:           值
+ * status_:
+ */
 class Block::Iter : public Iterator {
  private:
   const Comparator* const comparator_;
@@ -81,7 +113,7 @@ class Block::Iter : public Iterator {
   uint32_t const num_restarts_; // Number of uint32_t entries in restart array
 
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
-  uint32_t current_;
+  uint32_t current_; // 当前entry在data_中的偏移
   uint32_t restart_index_;  // Index of restart block in which current_ falls
   std::string key_;
   Slice value_;
@@ -96,11 +128,14 @@ class Block::Iter : public Iterator {
     return (value_.data() + value_.size()) - data_;
   }
 
+  // 解析出重启点数组中下标为'index'所存储的重启点的位置
   uint32_t GetRestartPoint(uint32_t index) {
     assert(index < num_restarts_);
     return DecodeFixed32(data_ + restarts_ + index * sizeof(uint32_t));
   }
 
+  // 跳到第index个重启点
+  // 这里并不先设置current_和value_，而在ParseNextKey()中进行设置
   void SeekToRestartPoint(uint32_t index) {
     key_.clear();
     restart_index_ = index;
@@ -108,6 +143,7 @@ class Block::Iter : public Iterator {
 
     // ParseNextKey() starts at the end of value_, so set value_ accordingly
     uint32_t offset = GetRestartPoint(index);
+    // 这一句的作用是什么
     value_ = Slice(data_ + offset, 0);
   }
 
@@ -146,8 +182,24 @@ class Block::Iter : public Iterator {
 
     // Scan backwards to a restart point before current_
     const uint32_t original = current_;
+    // 为什么使用while循环
+    // 照理来说到前一条entry最多只需到前一个重启点
+    // 所以只需要一个if就够了阿
+    /*
+    if (GetRestartPoint(restart_index_) >= original) {
+      if (restart_index == 0){
+        current_= restarts_;
+        restart_index = num_restarts_;
+        return;
+      }
+      restart_index_ --;
+    }
+    */
     while (GetRestartPoint(restart_index_) >= original) {
-      if (restart_index_ == 0) {
+      // 如果到达第1个重启点(下标为0), 该重启点对应的重启位置还是在当前entry的位置后面
+      // 就将current_设为重启点数组在block中的偏移，将restart_index_设为重启点的数目
+      // 这样这个迭代器就是invalid的了(Valid: current_ < restart_)
+      if (restart_index_ == 0) { 
         // No more entries
         current_ = restarts_;
         restart_index_ = num_restarts_;
@@ -159,15 +211,26 @@ class Block::Iter : public Iterator {
     SeekToRestartPoint(restart_index_);
     do {
       // Loop until end of current entry hits the start of original entry
+      // 这里while循环如果ParseNextKey成功，则还会继续执行NextEntryOffset
+      // 说明是先前进到下一条entry再在该entry的基础上检验其下一条entry是否在目的entry之前
     } while (ParseNextKey() && NextEntryOffset() < original);
   }
 
+  // 二分搜索
+  // 在重启点数组中寻找
   virtual void Seek(const Slice& target) {
     // Binary search in restart array to find the last restart point
     // with a key < target
     uint32_t left = 0;
     uint32_t right = num_restarts_ - 1;
     while (left < right) {
+      // 为什么mid = (left + right + 1) / 2还要+1？ 我一般写的都是(left + right) / 2
+      // 我觉得其实是有点讲究的
+      // 在更新left和right时采取的动作是不一样的
+      // 更新left时：left = mid;  更新right时：right = mid-1;
+      // 如果设置mid = (left + right) / 2，那么比如当left = 3, right = 4时，mid = 3；
+      // 如果是更新left，则left = mid = 3；那么循环永远不会退出
+      // 那为什么更新left时不是left = mid + 1而是left = mid呢？
       uint32_t mid = (left + right + 1) / 2;
       uint32_t region_offset = GetRestartPoint(mid);
       uint32_t shared, non_shared, value_length;
@@ -192,6 +255,7 @@ class Block::Iter : public Iterator {
 
     // Linear search (within restart block) for first key >= target
     SeekToRestartPoint(left);
+    // 在条件判断里面同时把函数给执行了
     while (true) {
       if (!ParseNextKey()) {
         return;
@@ -225,6 +289,8 @@ class Block::Iter : public Iterator {
 
   bool ParseNextKey() {
     current_ = NextEntryOffset();
+    // p指向next entry
+    // limit指向重启点数组
     const char* p = data_ + current_;
     const char* limit = data_ + restarts_;  // Restarts come right after data
     if (p >= limit) {
@@ -237,13 +303,24 @@ class Block::Iter : public Iterator {
     // Decode next entry
     uint32_t shared, non_shared, value_length;
     p = DecodeEntry(p, limit, &shared, &non_shared, &value_length);
+    // 如果p为NULL表示解析失败
+    // 由于key的共享长度是指和上一条entry的key相同部分的长度
+    // key_.size() < shared即当前entry的key的长度小于下一个entry的key的共享长度
+    // 这样就说明next entry不符合要求
     if (p == NULL || key_.size() < shared) {
       CorruptionError();
       return false;
     } else {
+      // 更新key
       key_.resize(shared);
       key_.append(p, non_shared);
+      // DecodeEntry返回的是指向key不同部分
+      // 更新value时需要p+non_shared
       value_ = Slice(p + non_shared, value_length);
+      // 为什么需要一个while循环
+      // 而不直接一个if语句将restart_index_递增？
+      // 因为我觉得迭代器一次前进(Next)最多跳到下一个restart_index_管理的位置
+      // 而且用了while循环之后还要使用GetRestartPoint(restart_index_ + 1) < current_这个条件来保证不会跳到正确的重启点下标后面去
       while (restart_index_ + 1 < num_restarts_ &&
              GetRestartPoint(restart_index_ + 1) < current_) {
         ++restart_index_;

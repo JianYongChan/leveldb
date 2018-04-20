@@ -26,6 +26,7 @@ class FilterPolicy;
 //
 // The sequence of calls to FilterBlockBuilder must match the regexp:
 //      (StartBlock AddKey*)* Finish
+// 构建filter block
 class FilterBlockBuilder {
  public:
   explicit FilterBlockBuilder(const FilterPolicy*);
@@ -38,10 +39,15 @@ class FilterBlockBuilder {
   void GenerateFilter();
 
   const FilterPolicy* policy_;
+  // 所有的key都存储在keys_中
   std::string keys_;              // Flattened key contents
+  // 每个key在keys_中的偏移位置
   std::vector<size_t> start_;     // Starting index in keys_ of each key
+  // 所有filter都存在result_里面
   std::string result_;            // Filter data computed so far
+  // 临时存放key，用做CreateFilter的参数
   std::vector<Slice> tmp_keys_;   // policy_->CreateFilter() argument
+  // 每个filter在result_中的偏移位置
   std::vector<uint32_t> filter_offsets_;
 
   // No copying allowed
@@ -49,6 +55,7 @@ class FilterBlockBuilder {
   void operator=(const FilterBlockBuilder&);
 };
 
+// 用于解析filter block
 class FilterBlockReader {
  public:
  // REQUIRES: "contents" and *policy must stay live while *this is live.
