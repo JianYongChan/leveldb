@@ -21,7 +21,9 @@ struct TableBuilder::Rep {
   Options options;
   Options index_block_options;
   WritableFile* file;
+  // 记录table的偏移量，主要用于index block
   uint64_t offset;
+  // 每次操作的状态
   Status status;
   BlockBuilder data_block;
   BlockBuilder index_block;
@@ -94,15 +96,21 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   assert(!r->closed);
   if (!ok()) return;
   if (r->num_entries > 0) {
+    // 由于key是有序的，所以新增的key必须要和上一条(last_key)必须要满足Compare关系
     assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
   }
 
+  // 如果Add的key是data_block的第一个key
   if (r->pending_index_entry) {
+    // 值由data_block为empty才说明现时Add的key是data_block的第一个key
     assert(r->data_block.empty());
+    // 找到现在这个key和上一条key(last_key)之间的一个分隔字符串
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
     std::string handle_encoding;
     r->pending_handle.EncodeTo(&handle_encoding);
+    // 既然现在添加的key是data_block的第一个key，所以就要把其加入到index_block内
     r->index_block.Add(r->last_key, Slice(handle_encoding));
+    // 此后的key就不会被添加到index_block中去
     r->pending_index_entry = false;
   }
 
@@ -110,10 +118,12 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     r->filter_block->AddKey(key);
   }
 
+  // 更新last_key，以备下次Add key用
   r->last_key.assign(key.data(), key.size());
   r->num_entries++;
   r->data_block.Add(key, value);
 
+  // 如果data_block的大小到达阈值，就将其刷新到磁盘
   const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
   if (estimated_block_size >= r->options.block_size) {
     Flush();
@@ -128,6 +138,7 @@ void TableBuilder::Flush() {
   assert(!r->pending_index_entry);
   WriteBlock(&r->data_block, &r->pending_handle);
   if (ok()) {
+    // 为下一次做准备
     r->pending_index_entry = true;
     r->status = r->file->Flush();
   }

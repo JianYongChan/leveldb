@@ -79,6 +79,8 @@ class TableBuilder {
   void WriteBlock(BlockBuilder* block, BlockHandle* handle);
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle);
 
+  // 这里有一点疑惑
+  // 前置声明放在class内，是否说明该Rep类是TableBuilder的嵌套类？
   struct Rep;
   Rep* rep_;
 

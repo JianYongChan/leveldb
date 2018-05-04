@@ -41,10 +41,12 @@ FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy* policy)
 
 // block_offset存储的是什么的offset？
 // 我觉得应该是data block的结束点的偏移位置
+// 当一个块被刷新到磁盘时，就调用StartBlock函数(在table_builder.cc中可以看到)
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
   uint64_t filter_index = (block_offset / kFilterBase);
   // filter_inde表示当前的keys需要多少个filter
   // filter_offsets_.size()返回的是当前filter的个数
+  // 因为块被刷新到了磁盘，所以filter_index一定要大于filter_offsets_.size()
   assert(filter_index >= filter_offsets_.size());
   while (filter_index > filter_offsets_.size()) {
     GenerateFilter();
@@ -85,6 +87,8 @@ Slice FilterBlockBuilder::Finish() {
   return Slice(result_);
 }
 
+// 联系GenerateFilter被调用的地方
+// 在StartBlock函数中，，
 void FilterBlockBuilder::GenerateFilter() {
   const size_t num_keys = start_.size();
   if (num_keys == 0) {
@@ -100,8 +104,9 @@ void FilterBlockBuilder::GenerateFilter() {
   // 用做CreateFilter的参数
   for (size_t i = 0; i < num_keys; i++) {
     const char* base = keys_.data() + start_[i];
-    // 这里可以看到每一条key是通过相邻key的偏移位置相减得到的
-    // 所以上面`start_push_back(keys_.size())是有必要的，因为这样才能得到最后一条key的length
+    // 这里可以看到每一条key是通过相邻key的偏移值相减得到的
+    // 所以上面`start_push_back(keys_.size())是有必要的
+    // 因为这样才能得到最后一条key的length
     size_t length = start_[i+1] - start_[i];
     tmp_keys_[i] = Slice(base, length);
   }
@@ -112,6 +117,7 @@ void FilterBlockBuilder::GenerateFilter() {
   // 所以&tmp_keys[0]获得keys的起始位置
   policy_->CreateFilter(&tmp_keys_[0], static_cast<int>(num_keys), &result_);
 
+  // 重置这3个成员变量
   tmp_keys_.clear();
   keys_.clear();
   start_.clear();
