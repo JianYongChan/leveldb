@@ -100,6 +100,8 @@ void FilterBlockBuilder::GenerateFilter() {
   // 用做CreateFilter的参数
   for (size_t i = 0; i < num_keys; i++) {
     const char* base = keys_.data() + start_[i];
+    // 这里可以看到每一条key是通过相邻key的偏移位置相减得到的
+    // 所以上面`start_push_back(keys_.size())是有必要的，因为这样才能得到最后一条key的length
     size_t length = start_[i+1] - start_[i];
     tmp_keys_[i] = Slice(base, length);
   }
