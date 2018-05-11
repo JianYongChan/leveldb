@@ -81,6 +81,8 @@ class TableBuilder {
 
   // 这里有一点疑惑
   // 前置声明放在class内，是否说明该Rep类是TableBuilder的嵌套类？
+  // 还是哪里前置声明作用都相同？
+  // 看来table_build.cc文件发现其实Rep就是TableBuilder类的嵌套类
   struct Rep;
   Rep* rep_;
 

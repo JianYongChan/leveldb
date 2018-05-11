@@ -105,6 +105,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     // 值由data_block为empty才说明现时Add的key是data_block的第一个key
     assert(r->data_block.empty());
     // 找到现在这个key和上一条key(last_key)之间的一个分隔字符串
+    // 比如last_key为abcd，现时的key为abcz，那么得到的分隔字符床为abce，即last_key与现时的key第一个不同的字符+1
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
     std::string handle_encoding;
     r->pending_handle.EncodeTo(&handle_encoding);
@@ -136,6 +137,7 @@ void TableBuilder::Flush() {
   if (!ok()) return;
   if (r->data_block.empty()) return;
   assert(!r->pending_index_entry);
+  // 将data_block写入
   WriteBlock(&r->data_block, &r->pending_handle);
   if (ok()) {
     // 为下一次做准备
@@ -147,10 +149,15 @@ void TableBuilder::Flush() {
   }
 }
 
+// SSTable文件格式：
+// | Data | Compression type | CRC |
+// | Data | Compression type | CRC |
+// | Data | Compression type | CRC |
+
 void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
-  //    type: uint8
+  //    type: uint8 (compression type)
   //    crc: uint32
   assert(ok());
   Rep* r = rep_;
@@ -159,17 +166,17 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   Slice block_contents;
   CompressionType type = r->options.compression;
   // TODO(postrelease): Support more compression options: zlib?
-  switch (type) {
+  switch (type) { // 不进行压缩
     case kNoCompression:
       block_contents = raw;
       break;
 
-    case kSnappyCompression: {
+    case kSnappyCompression: { // snappy压缩(尚不了解)
       std::string* compressed = &r->compressed_output;
       if (port::Snappy_Compress(raw.data(), raw.size(), compressed) &&
           compressed->size() < raw.size() - (raw.size() / 8u)) {
         block_contents = *compressed;
-      } else {
+      } else { // 压缩率小于12.5%，就不压缩而直接存储
         // Snappy not supported, or compressed less than 12.5%, so just
         // store uncompressed form
         block_contents = raw;
@@ -183,6 +190,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   block->Reset();
 }
 
+// 和WriteBlock的区别是
 void TableBuilder::WriteRawBlock(const Slice& block_contents,
                                  CompressionType type,
                                  BlockHandle* handle) {
