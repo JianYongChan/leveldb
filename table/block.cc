@@ -32,6 +32,8 @@ Block::Block(const BlockContents& contents)
      * start point(重启点)是std::vector<uint32_t> restart_;
      * 假设block所有的内容都用来存restart point(不过除了最后4个byte是存储restart point的个数)
      * 如果这都不够存，就说明肯定出错了
+     * 但是我有一个疑问，就是如果NumRestarts() < max_restarts_allowed就不算错误吗？
+     * 毕竟我觉得通过NumRestarts()算出来的重启点的个数应该和max_restarts_allowed相同才对
      */
     size_t max_restarts_allowed = (size_-sizeof(uint32_t)) / sizeof(uint32_t);
     if (NumRestarts() > max_restarts_allowed) {
