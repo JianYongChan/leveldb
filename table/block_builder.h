@@ -40,8 +40,9 @@ class BlockBuilder {
   }
 
  private:
-  const Options*        options_;
+  const Options*        options_;     // table的一些配置选项，比如重启点的间隔(interval)
   std::string           buffer_;      // Destination buffer
+  // restarts_存储的是重启点在datablock中的偏移位置
   std::vector<uint32_t> restarts_;    // Restart points
   // counter_存储的是最新的重起点块存储了多少条entry了
   // 默认每16条entry一个重启点，我将这16个entry称为一个重启点块

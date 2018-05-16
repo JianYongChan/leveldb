@@ -54,12 +54,16 @@ void BlockBuilder::Reset() {
   last_key_.clear();
 }
 
+// 需要估计当前builder所构建的data block的大小
+// 因为data block的大小是有阈值的
 size_t BlockBuilder::CurrentSizeEstimate() const {
   return (buffer_.size() +                        // Raw data buffer
           restarts_.size() * sizeof(uint32_t) +   // Restart array
           sizeof(uint32_t));                      // Restart array length
 }
 
+// 将所有的重启点以及重启点的个数追加到buffer中去
+// 并设置"构建完成"标志
 Slice BlockBuilder::Finish() {
   // Append restart array
   for (size_t i = 0; i < restarts_.size(); i++) {
@@ -70,6 +74,8 @@ Slice BlockBuilder::Finish() {
   return Slice(buffer_);
 }
 
+// 添加一条entry到buffer
+// entry: |non-shared-len|shared-len|value-len|non-shared-key|value|
 void BlockBuilder::Add(const Slice& key, const Slice& value) {
   Slice last_key_piece(last_key_);
   assert(!finished_);
@@ -91,6 +97,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   const size_t non_shared = key.size() - shared;
 
   // Add "<shared><non_shared><value_size>" to buffer_
+  // data block中一条entry的结构是：|shared(varint32)|non-shared(varint32)||value-size(varint32)|non-shared-key|value|
   PutVarint32(&buffer_, shared);
   PutVarint32(&buffer_, non_shared);
   PutVarint32(&buffer_, value.size());
