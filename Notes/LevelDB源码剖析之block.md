@@ -142,7 +142,7 @@ class BlockBuilder {
   // 重启点块的大小由options_.block_restart_interval决定(默认16)
   int                   counter_;     // Number of entries emitted since restart
   bool                  finished_;    // Has Finish() been called?
-  std::string           last_key_;    // 上一条插入的entry的key
+  std::string           last_key_;    // 上一条插入的entry的key，需要这个成员的原因是
 
   // No copying allowed
   BlockBuilder(const BlockBuilder&);
@@ -158,6 +158,8 @@ class BlockBuilder {
 void BlockBuilder::Add(const Slice& key, const Slice& value) {
   Slice last_key_piece(last_key_);
   assert(!finished_);
+  // 从上一个重启点开始已经存入的key-value个数
+  // 必须要小于interval
   assert(counter_ <= options_->block_restart_interval);
   assert(buffer_.empty() // No values yet?
          || options_->comparator->Compare(key, last_key_piece) > 0);
