@@ -44,7 +44,7 @@ FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy* policy)
 // 当一个块被刷新到磁盘时，就调用StartBlock函数(在table_builder.cc中可以看到)
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
   uint64_t filter_index = (block_offset / kFilterBase);
-  // filter_inde表示当前的keys需要多少个filter
+  // filter_index表示当前的keys需要多少个filter
   // filter_offsets_.size()返回的是当前filter的个数
   // 因为块被刷新到了磁盘，所以filter_index一定要大于filter_offsets_.size()
   assert(filter_index >= filter_offsets_.size());

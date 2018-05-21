@@ -23,14 +23,14 @@ static uint32_t BloomHash(const Slice& key) {
 
 class BloomFilterPolicy : public FilterPolicy {
  private:
-  size_t bits_per_key_;
+  size_t bits_per_key_; // 每个key占多少位，参见paper[https://www.eecs.harvard.edu/~michaelm/postscripts/rsa2008.pdf]
   size_t k_; // k_实际上时计算时采用的hash function的个数
 
  public:
   explicit BloomFilterPolicy(int bits_per_key)
       : bits_per_key_(bits_per_key) {
     // We intentionally round down to reduce probing cost a little bit
-    k_ = static_cast<size_t>(bits_per_key * 0.69);  // 0.69 =~ ln(2) (为什么不是～=)
+    k_ = static_cast<size_t>(bits_per_key * 0.69);  // 0.69 =~ ln(2) (为什么不是～=),这个值和bits_per_key_一样需要参考paper
     if (k_ < 1) k_ = 1;
     if (k_ > 30) k_ = 30;
   }
@@ -40,16 +40,21 @@ class BloomFilterPolicy : public FilterPolicy {
     return "leveldb.BuiltinBloomFilter2";
   }
 
+  // keys: 需要处理的key的集合
+  // n: key的个数
+  // dst：存放产生的结果
   virtual void CreateFilter(const Slice* keys, int n, std::string* dst) const {
     // Compute bloom filter size (in both bits and bytes)
     size_t bits = n * bits_per_key_;
 
     // For small n, we can see a very high false positive rate.  Fix it
     // by enforcing a minimum bloom filter length.
+    // 位数太少了误判率很高，所以设置最小为64bits
     if (bits < 64) bits = 64;
     
-    // 向上取整
+    // bits位占的字节(向上取整)
     size_t bytes = (bits + 7) / 8;
+    // bits实际上的位数
     bits = bytes * 8;
 
     // 是添加了key之后要把bloom filter扩大(装新增的keys)
@@ -92,7 +97,7 @@ class BloomFilterPolicy : public FilterPolicy {
 
   virtual bool KeyMayMatch(const Slice& key, const Slice& bloom_filter) const {
     const size_t len = bloom_filter.size();
-    // 因为至少有一个k_再bloom filter里面
+    // 因为至少有一个k_(hash函数的个数)在bloom filter里面
     // 所以len<2则说明key一定不在里面
     if (len < 2) return false;
 
